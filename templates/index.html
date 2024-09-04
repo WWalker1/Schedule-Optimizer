@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Your Habits</h2>
+<ul>
+{% for habit in habits %}
+    <li>{{ habit['name'] }} ({{ habit['frequency'] }}) - {{ habit['variable_type'] }}</li>
+{% endfor %}
+</ul>
+<a href="{{ url_for('logout') }}">Logout</a>
+{% endblock %}

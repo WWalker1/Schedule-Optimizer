@@ -1,0 +1,4 @@
+1. create work session habit with things like - 
+    with phone, percent_time_finished, interruptions?, location, etc
+2. Daily recorder like - sleep, num_meals, eat_out, money_spent, work_done, 
+    screen_time, happiness, etc
