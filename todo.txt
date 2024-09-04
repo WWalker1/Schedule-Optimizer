@@ -1,3 +1,14 @@
+Final Project Devliverables: 
+1. Account creation and security + Lasting habit tracking data 
+2. Habit and routine building screen 
+    - ability to create multiple habit dashboards. e.g. daily productivity trackers, weekly health trackers, work session productivity trackers
+3. CRUD application for recording routine/habit logs 
+4. customizable visualization dashboard. Shows progress and correlations of different elements 
+5. Model building page which uses classical machine learning models to maximize/minimize certain behaviors and actions 
+    - users can select target variables and introduce constraints to build effective models to "shape their days" 
+
+
+Personal Goals: 
 1. create work session habit with things like - 
     with phone, percent_time_finished, interruptions?, location, etc
 2. Daily recorder like - sleep, num_meals, eat_out, money_spent, work_done, 

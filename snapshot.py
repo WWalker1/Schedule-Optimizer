@@ -14,6 +14,6 @@ def aggregate_files(file_list, output_file='snapshot.txt'):
     print(f"Aggregated code saved to {output_file}")
 
 # Example usage
-files_to_aggregate = ['templates/base.html','templates/base.html','templates/login.html',
-                      'templates/register.html','app.py','init_db.py','schema.sql']
+files_to_aggregate = ['templates/index.html','templates/base.html','templates/login.html',
+                      'templates/register.html','app.py','init_db.py','schema.sql', 'todo.txt', 'README.md']
 aggregate_files(files_to_aggregate)
