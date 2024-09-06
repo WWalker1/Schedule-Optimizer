@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2 class="mb-4">Your Habits</h2>
-<div class="list-group">
+<h2 class="mb-4">{{ board['name'] }}</h2>
+<p>{{ board['description'] }}</p>
+<h3 class="mt-4 mb-3">Habits</h3>
+<div class="list-group mb-4">
 {% for habit in habits %}
     <a href="{{ url_for('view_habit', habit_id=habit['id']) }}" class="list-group-item list-group-item-action">
         <div class="d-flex w-100 justify-content-between">
@@ -14,5 +16,5 @@
     </a>
 {% endfor %}
 </div>
-<a href="{{ url_for('boards') }}" class="btn btn-primary mt-3">Manage Habit Boards</a>
+<a href="{{ url_for('add_habit', board_id=board['id']) }}" class="btn btn-primary">Add New Habit</a>
 {% endblock %}

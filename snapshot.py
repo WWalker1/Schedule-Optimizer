@@ -13,7 +13,16 @@ def aggregate_files(file_list, output_file='snapshot.txt'):
     
     print(f"Aggregated code saved to {output_file}")
 
+
+def get_filenames(subdir):  # Define a function that takes a subdirectory name as input
+    return [os.path.join(subdir, file) for file in os.listdir(subdir)]  # Return a list of filenames preceded by the subdirectory name using a list comprehension
+
+
 # Example usage
-files_to_aggregate = ['templates/index.html','templates/base.html','templates/login.html',
-                      'templates/register.html','app.py','init_db.py','schema.sql', 'todo.txt', 'README.md']
+
+files_to_aggregate = ['app.py','init_db.py','schema.sql', 'todo.txt', 'README.md']
+files_to_aggregate += get_filenames("templates")
+
+print(files_to_aggregate)
+
 aggregate_files(files_to_aggregate)

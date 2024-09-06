@@ -1,20 +1,29 @@
-<!-- templates/add_habit.html -->
 {% extends "base.html" %}
 
 {% block content %}
-<h2>Add New Habit</h2>
+<h2 class="mb-4">Add New Habit</h2>
 <form method="post">
-    <input type="text" name="name" placeholder="Habit Name" required>
-    <input type="text" name="description" placeholder="Description">
-    <select name="frequency" required>
-        <option value="daily">Daily</option>
-        <option value="weekly">Weekly</option>
-        <option value="monthly">Monthly</option>
-    </select>
-    <select name="variable_type" required>
-        <option value="boolean">Yes/No</option>
-        <option value="numeric">Numeric</option>
-    </select>
-    <input type="submit" value="Add Habit">
+    <div class="mb-3">
+        <input type="text" class="form-control" name="name" placeholder="Habit Name" required>
+    </div>
+    <div class="mb-3">
+        <textarea class="form-control" name="description" placeholder="Description" rows="3"></textarea>
+    </div>
+    <div class="mb-3">
+        <select class="form-select" name="frequency" required>
+            <option value="" selected disabled>Select Frequency</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+        </select>
+    </div>
+    <div class="mb-3">
+        <select class="form-select" name="variable_type" required>
+            <option value="" selected disabled>Select Variable Type</option>
+            <option value="boolean">Yes/No</option>
+            <option value="numeric">Numeric</option>
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Add Habit</button>
 </form>
 {% endblock %}

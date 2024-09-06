@@ -12,8 +12,7 @@ Active todo list:
 1. 
 
 Learn: 
-1. look into ORM for better data management
-
+1. look into ORM for better data management -- probably implement sqlalchemy 
 
 Personal Goals: 
 1. create work session habit with things like - 

@@ -1,15 +1,22 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2>Your Habit Boards</h2>
-<form method="post">
-    <input type="text" name="name" placeholder="Board Name" required>
-    <input type="text" name="description" placeholder="Description">
-    <input type="submit" value="Create New Board">
+<h2 class="mb-4">Your Habit Boards</h2>
+<form method="post" class="mb-4">
+    <div class="mb-3">
+        <input type="text" class="form-control" name="name" placeholder="Board Name" required>
+    </div>
+    <div class="mb-3">
+        <input type="text" class="form-control" name="description" placeholder="Description">
+    </div>
+    <button type="submit" class="btn btn-primary">Create New Board</button>
 </form>
-<ul>
+<div class="list-group">
 {% for board in boards %}
-    <li><a href="{{ url_for('view_board', board_id=board['id']) }}">{{ board['name'] }}</a></li>
+    <a href="{{ url_for('view_board', board_id=board['id']) }}" class="list-group-item list-group-item-action">
+        <h5 class="mb-1">{{ board['name'] }}</h5>
+        <p class="mb-1">{{ board['description'] }}</p>
+    </a>
 {% endfor %}
-</ul>
+</div>
 {% endblock %}

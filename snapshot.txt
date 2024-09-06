@@ -1,73 +1,3 @@
-# File: templates/index.html
-
-{% extends "base.html" %}
-
-{% block content %}
-<h2>Your Habits</h2>
-<ul>
-{% for habit in habits %}
-    <li>{{ habit['name'] }} ({{ habit['frequency'] }}) - {{ habit['variable_type'] }}</li>
-{% endfor %}
-</ul>
-<a href="{{ url_for('logout') }}">Logout</a>
-{% endblock %}
-
-
-# File: templates/base.html
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Habit Tracker</title>
-</head>
-<body>
-    {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            <ul>
-            {% for message in messages %}
-                <li>{{ message }}</li>
-            {% endfor %}
-            </ul>
-        {% endif %}
-    {% endwith %}
-    
-    {% block content %}{% endblock %}
-</body>
-</html>
-
-
-# File: templates/login.html
-
-{% extends "base.html" %}
-
-{% block content %}
-<h2>Login</h2>
-<form method="post">
-    <input type="text" name="username" placeholder="Username" required>
-    <input type="password" name="password" placeholder="Password" required>
-    <input type="submit" value="Login">
-</form>
-<p>Don't have an account? <a href="{{ url_for('register') }}">Register</a></p>
-{% endblock %}
-
-
-# File: templates/register.html
-
-{% extends "base.html" %}
-
-{% block content %}
-<h2>Register</h2>
-<form method="post">
-    <input type="text" name="username" placeholder="Username" required>
-    <input type="password" name="password" placeholder="Password" required>
-    <input type="submit" value="Register">
-</form>
-<p>Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
-{% endblock %}
-
-
 # File: app.py
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session
@@ -142,6 +72,117 @@ def logout():
     flash('Logged out successfully')
     return redirect(url_for('login'))
 
+@app.route('/boards', methods=['GET', 'POST'])
+@login_required
+def boards():
+    if request.method == 'POST':
+        name = request.form['name']
+        description = request.form['description']
+        conn = get_db_connection()
+        conn.execute('INSERT INTO habit_boards (user_id, name, description) VALUES (?, ?, ?)',
+                     (session['user_id'], name, description))
+        conn.commit()
+        conn.close()
+        flash('New board created successfully')
+        return redirect(url_for('boards'))
+    
+    conn = get_db_connection()
+    boards = conn.execute('SELECT * FROM habit_boards WHERE user_id = ?', (session['user_id'],)).fetchall()
+    conn.close()
+    return render_template('boards.html', boards=boards)
+
+@app.route('/board/<int:board_id>')
+@login_required
+def view_board(board_id):
+    conn = get_db_connection()
+    board = conn.execute('SELECT * FROM habit_boards WHERE id = ? AND user_id = ?', 
+                         (board_id, session['user_id'])).fetchone()
+    habits = conn.execute('SELECT * FROM habits WHERE board_id = ?', (board_id,)).fetchall()
+    conn.close()
+    return render_template('view_board.html', board=board, habits=habits)
+
+@app.route('/board/<int:board_id>/add_habit', methods=['GET', 'POST'])
+@login_required
+def add_habit(board_id):
+    if request.method == 'POST':
+        name = request.form['name']
+        description = request.form['description']
+        frequency = request.form['frequency']
+        variable_type = request.form['variable_type']
+        conn = get_db_connection()
+        conn.execute('INSERT INTO habits (user_id, board_id, name, description, frequency, variable_type) VALUES (?, ?, ?, ?, ?, ?)',
+                     (session['user_id'], board_id, name, description, frequency, variable_type))
+        conn.commit()
+        conn.close()
+        flash('New habit added successfully')
+        return redirect(url_for('view_board', board_id=board_id))
+    
+    return render_template('add_habit.html', board_id=board_id)
+
+@app.route('/habit/<int:habit_id>/log', methods=['GET', 'POST'])
+@login_required
+def log_habit(habit_id):
+    conn = get_db_connection()
+    habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
+                         (habit_id, session['user_id'])).fetchone()
+    
+    if request.method == 'POST':
+        date = request.form['date']
+        value = request.form['value']
+        conn.execute('INSERT INTO entries (habit_id, date, value) VALUES (?, ?, ?)',
+                     (habit_id, date, value))
+        conn.commit()
+        flash('Habit logged successfully')
+        return redirect(url_for('view_habit', habit_id=habit_id))
+    
+    entries = conn.execute('SELECT * FROM entries WHERE habit_id = ? ORDER BY date DESC', (habit_id,)).fetchall()
+    conn.close()
+    return render_template('log_habit.html', habit=habit, entries=entries)
+
+@app.route('/habit/<int:habit_id>')
+@login_required
+def view_habit(habit_id):
+    conn = get_db_connection()
+    habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
+                         (habit_id, session['user_id'])).fetchone()
+    entries = conn.execute('SELECT * FROM entries WHERE habit_id = ? ORDER BY date DESC', (habit_id,)).fetchall()
+    conn.close()
+    return render_template('view_habit.html', habit=habit, entries=entries)
+
+@app.route('/entry/<int:entry_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_entry(entry_id):
+    conn = get_db_connection()
+    entry = conn.execute('SELECT * FROM entries WHERE id = ?', (entry_id,)).fetchone()
+    habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
+                         (entry['habit_id'], session['user_id'])).fetchone()
+    
+    if request.method == 'POST':
+        value = request.form['value']
+        conn.execute('UPDATE entries SET value = ? WHERE id = ?', (value, entry_id))
+        conn.commit()
+        flash('Entry updated successfully')
+        return redirect(url_for('view_habit', habit_id=habit['id']))
+    
+    conn.close()
+    return render_template('edit_entry.html', entry=entry, habit=habit)
+
+@app.route('/entry/<int:entry_id>/delete', methods=['POST'])
+@login_required
+def delete_entry(entry_id):
+    conn = get_db_connection()
+    entry = conn.execute('SELECT * FROM entries WHERE id = ?', (entry_id,)).fetchone()
+    habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
+                         (entry['habit_id'], session['user_id'])).fetchone()
+    
+    conn.execute('DELETE FROM entries WHERE id = ?', (entry_id,))
+    conn.commit()
+    conn.close()
+    flash('Entry deleted successfully')
+    return redirect(url_for('view_habit', habit_id=habit['id']))
+
+
+
 if __name__ == '__main__':
     app.run(debug=True)
 
@@ -173,12 +214,14 @@ CREATE TABLE users (
 CREATE TABLE habits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
+    board_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
     frequency TEXT NOT NULL,
     variable_type TEXT NOT NULL,
     created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id)
+    FOREIGN KEY (user_id) REFERENCES users (id),
+    FOREIGN KEY (board_id) REFERENCES habit_boards (id)
 );
 
 CREATE TABLE entries (
@@ -187,6 +230,15 @@ CREATE TABLE entries (
     date DATE NOT NULL,
     value TEXT NOT NULL,
     FOREIGN KEY (habit_id) REFERENCES habits (id)
+);
+
+CREATE TABLE habit_boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
 # File: todo.txt
@@ -201,6 +253,12 @@ Final Project Devliverables:
     - users can select target variables and introduce constraints to build effective models to "shape their days" 
 
 
+Active todo list: 
+1. 
+
+Learn: 
+1. look into ORM for better data management -- probably implement sqlalchemy 
+
 Personal Goals: 
 1. create work session habit with things like - 
     with phone, percent_time_finished, interruptions?, location, etc
@@ -212,4 +270,224 @@ Personal Goals:
 
 # Schedule-Optimizer
 Track your habits and create models to boost behaviors and squash vice.
+
+# File: templates\add_habit.html
+
+<!-- templates/add_habit.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Add New Habit</h2>
+<form method="post">
+    <input type="text" name="name" placeholder="Habit Name" required>
+    <input type="text" name="description" placeholder="Description">
+    <select name="frequency" required>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+    </select>
+    <select name="variable_type" required>
+        <option value="boolean">Yes/No</option>
+        <option value="numeric">Numeric</option>
+    </select>
+    <input type="submit" value="Add Habit">
+</form>
+{% endblock %}
+
+# File: templates\base.html
+
+<!-- templates/base.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Habit Tracker</title>
+</head>
+<body>
+    <nav>
+        <ul>
+            {% if 'user_id' in session %}
+                <li><a href="{{ url_for('index') }}">Home</a></li>
+                <li><a href="{{ url_for('boards') }}">Habit Boards</a></li>
+                <li><a href="{{ url_for('logout') }}">Logout</a></li>
+            {% else %}
+                <li><a href="{{ url_for('login') }}">Login</a></li>
+                <li><a href="{{ url_for('register') }}">Register</a></li>
+            {% endif %}
+        </ul>
+    </nav>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <ul class="flashes">
+            {% for message in messages %}
+                <li>{{ message }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+    
+    {% block content %}{% endblock %}
+</body>
+</html>
+
+# File: templates\boards.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Your Habit Boards</h2>
+<form method="post">
+    <input type="text" name="name" placeholder="Board Name" required>
+    <input type="text" name="description" placeholder="Description">
+    <input type="submit" value="Create New Board">
+</form>
+<ul>
+{% for board in boards %}
+    <li><a href="{{ url_for('view_board', board_id=board['id']) }}">{{ board['name'] }}</a></li>
+{% endfor %}
+</ul>
+{% endblock %}
+
+# File: templates\edit_entry.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Edit Entry for {{ habit['name'] }}</h2>
+<form method="post">
+    <p>Date: {{ entry['date'] }}</p>
+    {% if habit['variable_type'] == 'boolean' %}
+    <select name="value">
+        <option value="1" {% if entry['value'] == '1' %}selected{% endif %}>Yes</option>
+        <option value="0" {% if entry['value'] == '0' %}selected{% endif %}>No</option>
+    </select>
+    {% else %}
+    <input type="number" name="value" value="{{ entry['value'] }}" required>
+    {% endif %}
+    <input type="submit" value="Update Entry">
+</form>
+{% endblock %}
+
+# File: templates\index.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Your Habits</h2>
+<ul>
+{% for habit in habits %}
+    <li>{{ habit['name'] }} ({{ habit['frequency'] }}) - {{ habit['variable_type'] }}</li>
+{% endfor %}
+</ul>
+<a href="{{ url_for('logout') }}">Logout</a>
+{% endblock %}
+
+
+# File: templates\login.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Login</h2>
+<form method="post">
+    <input type="text" name="username" placeholder="Username" required>
+    <input type="password" name="password" placeholder="Password" required>
+    <input type="submit" value="Login">
+</form>
+<p>Don't have an account? <a href="{{ url_for('register') }}">Register</a></p>
+{% endblock %}
+
+
+# File: templates\log_habit.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Log Habit: {{ habit['name'] }}</h2>
+<form method="post">
+    <input type="date" name="date" required>
+    {% if habit['variable_type'] == 'boolean' %}
+    <select name="value">
+        <option value="1">Yes</option>
+        <option value="0">No</option>
+    </select>
+    {% else %}
+    <input type="number" name="value" required>
+    {% endif %}
+    <input type="submit" value="Log Entry">
+</form>
+
+<h3>Recent Entries</h3>
+<ul>
+{% for entry in entries %}
+    <li>
+        {{ entry['date'] }}: {{ entry['value'] }}
+        <a href="{{ url_for('edit_entry', entry_id=entry['id']) }}">Edit</a>
+        <form method="post" action="{{ url_for('delete_entry', entry_id=entry['id']) }}" style="display: inline;">
+            <input type="submit" value="Delete">
+        </form>
+    </li>
+{% endfor %}
+</ul>
+{% endblock %}
+
+
+
+
+# File: templates\register.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Register</h2>
+<form method="post">
+    <input type="text" name="username" placeholder="Username" required>
+    <input type="password" name="password" placeholder="Password" required>
+    <input type="submit" value="Register">
+</form>
+<p>Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+{% endblock %}
+
+
+# File: templates\view_boards.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>{{ board['name'] }}</h2>
+<p>{{ board['description'] }}</p>
+<h3>Habits</h3>
+<ul>
+{% for habit in habits %}
+    <li>{{ habit['name'] }}</li>
+{% endfor %}
+</ul>
+{% endblock %}
+
+# File: templates\view_habit.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2>{{ habit['name'] }}</h2>
+<p>{{ habit['description'] }}</p>
+<p>Frequency: {{ habit['frequency'] }}</p>
+<a href="{{ url_for('log_habit', habit_id=habit['id']) }}">Log Entry</a>
+
+<h3>Entries</h3>
+<ul>
+{% for entry in entries %}
+    <li>
+        {{ entry['date'] }}: {{ entry['value'] }}
+        <a href="{{ url_for('edit_entry', entry_id=entry['id']) }}">Edit</a>
+        <form method="post" action="{{ url_for('delete_entry', entry_id=entry['id']) }}" style="display: inline;">
+            <input type="submit" value="Delete">
+        </form>
+    </li>
+{% endfor %}
+</ul>
+{% endblock %}
+
 
