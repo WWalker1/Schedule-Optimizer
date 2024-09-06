@@ -1,0 +1,20 @@
+<!-- templates/add_habit.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Add New Habit</h2>
+<form method="post">
+    <input type="text" name="name" placeholder="Habit Name" required>
+    <input type="text" name="description" placeholder="Description">
+    <select name="frequency" required>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+    </select>
+    <select name="variable_type" required>
+        <option value="boolean">Yes/No</option>
+        <option value="numeric">Numeric</option>
+    </select>
+    <input type="submit" value="Add Habit">
+</form>
+{% endblock %}

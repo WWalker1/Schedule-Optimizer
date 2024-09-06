@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Edit Entry for {{ habit['name'] }}</h2>
+<form method="post">
+    <p>Date: {{ entry['date'] }}</p>
+    {% if habit['variable_type'] == 'boolean' %}
+    <select name="value">
+        <option value="1" {% if entry['value'] == '1' %}selected{% endif %}>Yes</option>
+        <option value="0" {% if entry['value'] == '0' %}selected{% endif %}>No</option>
+    </select>
+    {% else %}
+    <input type="number" name="value" value="{{ entry['value'] }}" required>
+    {% endif %}
+    <input type="submit" value="Update Entry">
+</form>
+{% endblock %}

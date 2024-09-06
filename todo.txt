@@ -8,6 +8,13 @@ Final Project Devliverables:
     - users can select target variables and introduce constraints to build effective models to "shape their days" 
 
 
+Active todo list: 
+1. 
+
+Learn: 
+1. look into ORM for better data management
+
+
 Personal Goals: 
 1. create work session habit with things like - 
     with phone, percent_time_finished, interruptions?, location, etc

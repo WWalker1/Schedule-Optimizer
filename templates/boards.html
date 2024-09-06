@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Your Habit Boards</h2>
+<form method="post">
+    <input type="text" name="name" placeholder="Board Name" required>
+    <input type="text" name="description" placeholder="Description">
+    <input type="submit" value="Create New Board">
+</form>
+<ul>
+{% for board in boards %}
+    <li><a href="{{ url_for('view_board', board_id=board['id']) }}">{{ board['name'] }}</a></li>
+{% endfor %}
+</ul>
+{% endblock %}

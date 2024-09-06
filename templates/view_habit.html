@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>{{ habit['name'] }}</h2>
+<p>{{ habit['description'] }}</p>
+<p>Frequency: {{ habit['frequency'] }}</p>
+<a href="{{ url_for('log_habit', habit_id=habit['id']) }}">Log Entry</a>
+
+<h3>Entries</h3>
+<ul>
+{% for entry in entries %}
+    <li>
+        {{ entry['date'] }}: {{ entry['value'] }}
+        <a href="{{ url_for('edit_entry', entry_id=entry['id']) }}">Edit</a>
+        <form method="post" action="{{ url_for('delete_entry', entry_id=entry['id']) }}" style="display: inline;">
+            <input type="submit" value="Delete">
+        </form>
+    </li>
+{% endfor %}
+</ul>
+{% endblock %}
