@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Log Habits for {{ board['name'] }}</h2>
+<form method="post">
+    <div class="mb-3">
+        <label for="log_date" class="form-label">Date</label>
+        <input type="date" class="form-control" id="log_date" name="log_date" value="{{ today }}" required>
+    </div>
+
+    {% for habit in habits %}
+    <div class="mb-3">
+        <label for="habit_{{ habit['id'] }}" class="form-label">{{ habit['name'] }}</label>
+        {% if habit['variable_type'] == 'boolean' %}
+            <select class="form-select" id="habit_{{ habit['id'] }}" name="habit_{{ habit['id'] }}">
+                <option value="">Skip</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+            </select>
+        {% elif habit['variable_type'] == 'numeric' %}
+            <input type="number" class="form-control" id="habit_{{ habit['id'] }}" name="habit_{{ habit['id'] }}">
+        {% elif habit['variable_type'] == 'categorical' %}
+            <select class="form-select" id="habit_{{ habit['id'] }}" name="habit_{{ habit['id'] }}">
+                <option value="">Skip</option>
+                {% for option in habit['options'] %}
+                    <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+            </select>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <button type="submit" class="btn btn-primary">Log Habits</button>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var dateInput = document.getElementById('log_date');
+    var today = new Date().toISOString().split('T')[0];
+    dateInput.value = today;
+
+    dateInput.addEventListener('change', function() {
+        if (this.value !== today) {
+            if (!confirm('Are you sure you want to log habits for a different date?')) {
+                this.value = today;
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Edit Habit: {{ habit['name'] }}</h2>
+<form method="post">
+    <div class="mb-3">
+        <input type="text" class="form-control" name="name" value="{{ habit['name'] }}" required>
+    </div>
+    <div class="mb-3">
+        <textarea class="form-control" name="description" rows="3">{{ habit['description'] }}</textarea>
+    </div>
+    {% if board['board_type'] == 'time-series' %}
+    <div class="mb-3">
+        <select class="form-select" name="frequency" required>
+            <option value="daily" {% if habit['frequency'] == 'daily' %}selected{% endif %}>Daily</option>
+            <option value="weekly" {% if habit['frequency'] == 'weekly' %}selected{% endif %}>Weekly</option>
+            <option value="monthly" {% if habit['frequency'] == 'monthly' %}selected{% endif %}>Monthly</option>
+        </select>
+    </div>
+    {% endif %}
+    {% if habit['variable_type'] == 'categorical' %}
+    <div id="categorical_options">
+        {% for option in options %}
+        <div class="mb-3">
+            <input type="text" class="form-control" name="options[]" value="{{ option }}">
+        </div>
+        {% endfor %}
+        <button type="button" class="btn btn-secondary mb-3" id="add_option">Add Option</button>
+    </div>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Update Habit</button>
+</form>
+<form method="post" action="{{ url_for('delete_habit', habit_id=habit['id']) }}" 
+      onsubmit="return confirm('Are you sure you want to delete this habit? This action cannot be undone.');">
+    <button type="submit" class="btn btn-danger mt-3">Delete Habit</button>
+</form>
+
+{% if habit['variable_type'] == 'categorical' %}
+<script>
+document.getElementById('add_option').addEventListener('click', function() {
+    var optionsDiv = document.getElementById('categorical_options');
+    var newOption = document.createElement('div');
+    newOption.classList.add('mb-3');
+    newOption.innerHTML = '<input type="text" class="form-control" name="options[]" placeholder="New Option">';
+    optionsDiv.insertBefore(newOption, this);
+});
+</script>
+{% endif %}
+{% endblock %}

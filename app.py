@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Change this to a random secret key
@@ -83,9 +83,10 @@ def boards():
     if request.method == 'POST':
         name = request.form['name']
         description = request.form['description']
+        board_type = request.form['board_type']
         conn = get_db_connection()
-        conn.execute('INSERT INTO habit_boards (user_id, name, description) VALUES (?, ?, ?)',
-                     (session['user_id'], name, description))
+        conn.execute('INSERT INTO habit_boards (user_id, name, description, board_type) VALUES (?, ?, ?, ?)',
+                     (session['user_id'], name, description, board_type))
         conn.commit()
         conn.close()
         flash('New board created successfully')
@@ -109,20 +110,103 @@ def view_board(board_id):
 @app.route('/board/<int:board_id>/add_habit', methods=['GET', 'POST'])
 @login_required
 def add_habit(board_id):
+    conn = get_db_connection()
+    board = conn.execute('SELECT * FROM habit_boards WHERE id = ? AND user_id = ?', 
+                         (board_id, session['user_id'])).fetchone()
+    
     if request.method == 'POST':
         name = request.form['name']
         description = request.form['description']
-        frequency = request.form['frequency']
         variable_type = request.form['variable_type']
-        conn = get_db_connection()
-        conn.execute('INSERT INTO habits (user_id, board_id, name, description, frequency, variable_type) VALUES (?, ?, ?, ?, ?, ?)',
+        
+        # Only set frequency for time-series boards
+        frequency = request.form.get('frequency') if board['board_type'] == 'time-series' else None
+        
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO habits (user_id, board_id, name, description, frequency, variable_type) VALUES (?, ?, ?, ?, ?, ?)',
                      (session['user_id'], board_id, name, description, frequency, variable_type))
+        habit_id = cursor.lastrowid
+        
+        if variable_type == 'categorical':
+            options = request.form.getlist('options[]')
+            for option in options:
+                if option.strip():  # Only add non-empty options
+                    cursor.execute('INSERT INTO habit_options (habit_id, option_value) VALUES (?, ?)',
+                                   (habit_id, option.strip()))
+        
         conn.commit()
         conn.close()
         flash('New habit added successfully')
         return redirect(url_for('view_board', board_id=board_id))
     
-    return render_template('add_habit.html', board_id=board_id)
+    conn.close()
+    return render_template('add_habit.html', board_id=board_id, board=board)
+
+@app.route('/board/<int:board_id>/log_all', methods=['GET', 'POST'])
+@login_required
+def log_all_habits(board_id):
+    conn = get_db_connection()
+    board = conn.execute('SELECT * FROM habit_boards WHERE id = ? AND user_id = ?', 
+                         (board_id, session['user_id'])).fetchone()
+    
+    # Get today's date
+    today = datetime.now().date()
+
+    if request.method == 'POST':
+        log_date = request.form['log_date']
+        for key, value in request.form.items():
+            if key.startswith('habit_'):
+                habit_id = int(key.split('_')[1])
+                if value:  # Only log if a value is provided (not blank)
+                    # Check if an entry already exists for this date and habit
+                    existing = conn.execute('SELECT id FROM entries WHERE habit_id = ? AND date = ?', 
+                                           (habit_id, log_date)).fetchone()
+                    if existing:
+                        # Update existing entry
+                        conn.execute('UPDATE entries SET value = ? WHERE id = ?', 
+                                     (value, existing['id']))
+                    else:
+                        # Create new entry
+                        conn.execute('INSERT INTO entries (habit_id, date, value) VALUES (?, ?, ?)',
+                                     (habit_id, log_date, value))
+        conn.commit()
+        flash('Habits logged successfully')
+        return redirect(url_for('view_board', board_id=board_id))
+
+    # Fetch habits and their recent entries
+    habits_to_log = []
+    habits = conn.execute('SELECT * FROM habits WHERE board_id = ?', (board_id,)).fetchall()
+    for habit in habits:
+        # Get the most recent entry for this habit
+        last_entry = conn.execute('''
+            SELECT date FROM entries 
+            WHERE habit_id = ? 
+            ORDER BY date DESC LIMIT 1
+        ''', (habit['id'],)).fetchone()
+
+        # Get options for categorical habits
+        if habit['variable_type'] == 'categorical':
+            options = conn.execute('SELECT option_value FROM habit_options WHERE habit_id = ?', (habit['id'],)).fetchall()
+            habit = dict(habit)
+            habit['options'] = [option['option_value'] for option in options]
+
+        # Determine if the habit should be logged today
+        should_log = True
+        if last_entry:
+            last_date = datetime.strptime(last_entry['date'], '%Y-%m-%d').date()
+            days_since_last = (today - last_date).days
+            if habit['frequency'] == 'daily' and days_since_last < 1:
+                should_log = False
+            elif habit['frequency'] == 'weekly' and days_since_last < 7:
+                should_log = False
+            elif habit['frequency'] == 'monthly' and days_since_last < 30:
+                should_log = False
+
+        if should_log:
+            habits_to_log.append(habit)
+
+    conn.close()
+    return render_template('log_all_habits.html', board=board, habits=habits_to_log, today=today.isoformat())
 
 @app.route('/habit/<int:habit_id>/log', methods=['GET', 'POST'])
 @login_required
@@ -186,7 +270,69 @@ def delete_entry(entry_id):
     flash('Entry deleted successfully')
     return redirect(url_for('view_habit', habit_id=habit['id']))
 
+@app.route('/habit/<int:habit_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_habit(habit_id):
+    conn = get_db_connection()
+    habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
+                         (habit_id, session['user_id'])).fetchone()
+    board = conn.execute('SELECT * FROM habit_boards WHERE id = ?', (habit['board_id'],)).fetchone()
+    
+    if request.method == 'POST':
+        name = request.form['name']
+        description = request.form['description']
+        frequency = request.form.get('frequency') if board['board_type'] == 'time-series' else None
 
+        conn.execute('''UPDATE habits 
+                        SET name = ?, description = ?, frequency = ?
+                        WHERE id = ?''', 
+                     (name, description, frequency, habit_id))
+
+        # Handle categorical options
+        if habit['variable_type'] == 'categorical':
+            # Delete existing options
+            conn.execute('DELETE FROM habit_options WHERE habit_id = ?', (habit_id,))
+            # Add new options
+            options = request.form.getlist('options[]')
+            for option in options:
+                if option.strip():
+                    conn.execute('INSERT INTO habit_options (habit_id, option_value) VALUES (?, ?)',
+                                 (habit_id, option.strip()))
+
+        conn.commit()
+        flash('Habit updated successfully')
+        return redirect(url_for('view_board', board_id=habit['board_id']))
+
+    # Fetch categorical options if applicable
+    options = []
+    if habit['variable_type'] == 'categorical':
+        options = conn.execute('SELECT option_value FROM habit_options WHERE habit_id = ?', 
+                              (habit_id,)).fetchall()
+        options = [option['option_value'] for option in options]
+
+    conn.close()
+    return render_template('edit_habit.html', habit=habit, board=board, options=options)
+
+@app.route('/habit/<int:habit_id>/delete', methods=['POST'])
+@login_required
+def delete_habit(habit_id):
+    conn = get_db_connection()
+    habit = conn.execute('SELECT board_id FROM habits WHERE id = ? AND user_id = ?', 
+                         (habit_id, session['user_id'])).fetchone()
+    
+    if habit:
+        # Delete related entries and options first
+        conn.execute('DELETE FROM entries WHERE habit_id = ?', (habit_id,))
+        conn.execute('DELETE FROM habit_options WHERE habit_id = ?', (habit_id,))
+        # Then delete the habit
+        conn.execute('DELETE FROM habits WHERE id = ?', (habit_id,))
+        conn.commit()
+        flash('Habit deleted successfully')
+    else:
+        flash('Habit not found or unauthorized')
+    
+    conn.close()
+    return redirect(url_for('view_board', board_id=habit['board_id']))
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -9,12 +9,18 @@
     <div class="mb-3">
         <input type="text" class="form-control" name="description" placeholder="Description">
     </div>
+    <div class="mb-3">
+        <select class="form-select" name="board_type" required>
+            <option value="time-series">Time Series</option>
+            <option value="batch">Batch</option>
+        </select>
+    </div>
     <button type="submit" class="btn btn-primary">Create New Board</button>
 </form>
 <div class="list-group">
 {% for board in boards %}
     <a href="{{ url_for('view_board', board_id=board['id']) }}" class="list-group-item list-group-item-action">
-        <h5 class="mb-1">{{ board['name'] }}</h5>
+        <h5 class="mb-1">{{ board['name'] }} ({{ board['board_type'] }})</h5>
         <p class="mb-1">{{ board['description'] }}</p>
     </a>
 {% endfor %}

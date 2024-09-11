@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+<a href="{{ url_for('log_all_habits', board_id=board['id']) }}" class="btn btn-primary mb-3">Log All Habits</a>
 <h2 class="mb-4">{{ board['name'] }}</h2>
 <p>{{ board['description'] }}</p>
 <h3 class="mt-4 mb-3">Habits</h3>
