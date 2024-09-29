@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Stats</h2>
+<form id="stat-form">
+    <div class="mb-3">
+        <label for="habit-select" class="form-label">Select Habit</label>
+        <select class="form-select" id="habit-select" name="habit_id">
+            {% for habit in habits %}
+                <option value="{{ habit['id'] }}">{{ habit['name'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="start-date" class="form-label">Start Date</label>
+        <input type="date" class="form-control" id="start-date" name="start_date">
+    </div>
+    <div class="mb-3">
+        <label for="end-date" class="form-label">End Date</label>
+        <input type="date" class="form-control" id="end-date" name="end_date">
+    </div>
+    <button type="submit" class="btn btn-primary">Generate Plot</button>
+</form>
+
+<div id="plot-container" class="mt-4"></div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.getElementById('stat-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    fetch('/generate_plot', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        Plotly.newPlot('plot-container', data.data, data.layout);
+    });
+});
+</script>
+{% endblock %}

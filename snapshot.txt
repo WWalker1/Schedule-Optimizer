@@ -4,7 +4,8 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
+from flask import jsonify
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Change this to a random secret key
@@ -21,6 +22,38 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+@app.route('/generate_plot', methods=['POST'])
+@login_required
+def generate_plot():
+    habit_id = request.form['habit_id']
+    start_date = request.form['start_date']
+    end_date = request.form['end_date']
+    
+    conn = get_db_connection()
+    entries = conn.execute('''
+        SELECT date, value FROM entries 
+        WHERE habit_id = ? AND date BETWEEN ? AND ?
+        ORDER BY date
+    ''', (habit_id, start_date, end_date)).fetchall()
+    conn.close()
+    
+    dates = [entry['date'] for entry in entries]
+    values = [float(entry['value']) for entry in entries]
+    
+    data = [{
+        'x': dates,
+        'y': values,
+        'type': 'scatter'
+    }]
+    
+    layout = {
+        'title': 'Habit Progress',
+        'xaxis': {'title': 'Date'},
+        'yaxis': {'title': 'Value'}
+    }
+    
+    return jsonify({'data': data, 'layout': layout})
 
 @app.route('/')
 @login_required
@@ -85,9 +118,10 @@ def boards():
     if request.method == 'POST':
         name = request.form['name']
         description = request.form['description']
+        board_type = request.form['board_type']
         conn = get_db_connection()
-        conn.execute('INSERT INTO habit_boards (user_id, name, description) VALUES (?, ?, ?)',
-                     (session['user_id'], name, description))
+        conn.execute('INSERT INTO habit_boards (user_id, name, description, board_type) VALUES (?, ?, ?, ?)',
+                     (session['user_id'], name, description, board_type))
         conn.commit()
         conn.close()
         flash('New board created successfully')
@@ -111,20 +145,103 @@ def view_board(board_id):
 @app.route('/board/<int:board_id>/add_habit', methods=['GET', 'POST'])
 @login_required
 def add_habit(board_id):
+    conn = get_db_connection()
+    board = conn.execute('SELECT * FROM habit_boards WHERE id = ? AND user_id = ?', 
+                         (board_id, session['user_id'])).fetchone()
+    
     if request.method == 'POST':
         name = request.form['name']
         description = request.form['description']
-        frequency = request.form['frequency']
         variable_type = request.form['variable_type']
-        conn = get_db_connection()
-        conn.execute('INSERT INTO habits (user_id, board_id, name, description, frequency, variable_type) VALUES (?, ?, ?, ?, ?, ?)',
+        
+        # Only set frequency for time-series boards
+        frequency = request.form.get('frequency') if board['board_type'] == 'time-series' else None
+        
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO habits (user_id, board_id, name, description, frequency, variable_type) VALUES (?, ?, ?, ?, ?, ?)',
                      (session['user_id'], board_id, name, description, frequency, variable_type))
+        habit_id = cursor.lastrowid
+        
+        if variable_type == 'categorical':
+            options = request.form.getlist('options[]')
+            for option in options:
+                if option.strip():  # Only add non-empty options
+                    cursor.execute('INSERT INTO habit_options (habit_id, option_value) VALUES (?, ?)',
+                                   (habit_id, option.strip()))
+        
         conn.commit()
         conn.close()
         flash('New habit added successfully')
         return redirect(url_for('view_board', board_id=board_id))
     
-    return render_template('add_habit.html', board_id=board_id)
+    conn.close()
+    return render_template('add_habit.html', board_id=board_id, board=board)
+
+@app.route('/board/<int:board_id>/log_all', methods=['GET', 'POST'])
+@login_required
+def log_all_habits(board_id):
+    conn = get_db_connection()
+    board = conn.execute('SELECT * FROM habit_boards WHERE id = ? AND user_id = ?', 
+                         (board_id, session['user_id'])).fetchone()
+    
+    # Get today's date
+    today = datetime.now().date()
+
+    if request.method == 'POST':
+        log_date = request.form['log_date']
+        for key, value in request.form.items():
+            if key.startswith('habit_'):
+                habit_id = int(key.split('_')[1])
+                if value:  # Only log if a value is provided (not blank)
+                    # Check if an entry already exists for this date and habit
+                    existing = conn.execute('SELECT id FROM entries WHERE habit_id = ? AND date = ?', 
+                                           (habit_id, log_date)).fetchone()
+                    if existing:
+                        # Update existing entry
+                        conn.execute('UPDATE entries SET value = ? WHERE id = ?', 
+                                     (value, existing['id']))
+                    else:
+                        # Create new entry
+                        conn.execute('INSERT INTO entries (habit_id, date, value) VALUES (?, ?, ?)',
+                                     (habit_id, log_date, value))
+        conn.commit()
+        flash('Habits logged successfully')
+        return redirect(url_for('view_board', board_id=board_id))
+
+    # Fetch habits and their recent entries
+    habits_to_log = []
+    habits = conn.execute('SELECT * FROM habits WHERE board_id = ?', (board_id,)).fetchall()
+    for habit in habits:
+        # Get the most recent entry for this habit
+        last_entry = conn.execute('''
+            SELECT date FROM entries 
+            WHERE habit_id = ? 
+            ORDER BY date DESC LIMIT 1
+        ''', (habit['id'],)).fetchone()
+
+        # Get options for categorical habits
+        if habit['variable_type'] == 'categorical':
+            options = conn.execute('SELECT option_value FROM habit_options WHERE habit_id = ?', (habit['id'],)).fetchall()
+            habit = dict(habit)
+            habit['options'] = [option['option_value'] for option in options]
+
+        # Determine if the habit should be logged today
+        should_log = True
+        if last_entry:
+            last_date = datetime.strptime(last_entry['date'], '%Y-%m-%d').date()
+            days_since_last = (today - last_date).days
+            if habit['frequency'] == 'daily' and days_since_last < 1:
+                should_log = False
+            elif habit['frequency'] == 'weekly' and days_since_last < 7:
+                should_log = False
+            elif habit['frequency'] == 'monthly' and days_since_last < 30:
+                should_log = False
+
+        if should_log:
+            habits_to_log.append(habit)
+
+    conn.close()
+    return render_template('log_all_habits.html', board=board, habits=habits_to_log, today=today.isoformat())
 
 @app.route('/habit/<int:habit_id>/log', methods=['GET', 'POST'])
 @login_required
@@ -146,6 +263,43 @@ def log_habit(habit_id):
     conn.close()
     return render_template('log_habit.html', habit=habit, entries=entries)
 
+@app.route('/board/<int:board_id>/delete', methods=['POST'])
+@login_required
+def delete_board(board_id):
+    conn = get_db_connection()
+    
+    # First, delete all entries associated with habits in this board
+    conn.execute('''
+        DELETE FROM entries 
+        WHERE habit_id IN (SELECT id FROM habits WHERE board_id = ?)
+    ''', (board_id,))
+    
+    # Delete all habit options associated with habits in this board
+    conn.execute('''
+        DELETE FROM habit_options 
+        WHERE habit_id IN (SELECT id FROM habits WHERE board_id = ?)
+    ''', (board_id,))
+    
+    # Delete all habits associated with this board
+    conn.execute('DELETE FROM habits WHERE board_id = ?', (board_id,))
+    
+    # Finally, delete the board itself
+    conn.execute('DELETE FROM habit_boards WHERE id = ? AND user_id = ?', (board_id, session['user_id']))
+    
+    conn.commit()
+    conn.close()
+    
+    flash('Habit board deleted successfully')
+    return redirect(url_for('boards'))
+
+@app.route('/stats')
+@login_required
+def stats():
+    conn = get_db_connection()
+    habits = conn.execute('SELECT id, name FROM habits WHERE user_id = ?', (session['user_id'],)).fetchall()
+    conn.close()
+    return render_template('stats.html', habits=habits)
+
 @app.route('/habit/<int:habit_id>')
 @login_required
 def view_habit(habit_id):
@@ -153,8 +307,14 @@ def view_habit(habit_id):
     habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
                          (habit_id, session['user_id'])).fetchone()
     entries = conn.execute('SELECT * FROM entries WHERE habit_id = ? ORDER BY date DESC', (habit_id,)).fetchall()
+    
+    habit_options = []
+    if habit['variable_type'] == 'categorical':
+        options = conn.execute('SELECT option_value FROM habit_options WHERE habit_id = ?', (habit_id,)).fetchall()
+        habit_options = [option['option_value'] for option in options]
+    
     conn.close()
-    return render_template('view_habit.html', habit=habit, entries=entries)
+    return render_template('view_habit.html', habit=habit, entries=entries, habit_options=habit_options)
 
 @app.route('/entry/<int:entry_id>/edit', methods=['GET', 'POST'])
 @login_required
@@ -188,7 +348,69 @@ def delete_entry(entry_id):
     flash('Entry deleted successfully')
     return redirect(url_for('view_habit', habit_id=habit['id']))
 
+@app.route('/habit/<int:habit_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_habit(habit_id):
+    conn = get_db_connection()
+    habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
+                         (habit_id, session['user_id'])).fetchone()
+    board = conn.execute('SELECT * FROM habit_boards WHERE id = ?', (habit['board_id'],)).fetchone()
+    
+    if request.method == 'POST':
+        name = request.form['name']
+        description = request.form['description']
+        frequency = request.form.get('frequency') if board['board_type'] == 'time-series' else None
 
+        conn.execute('''UPDATE habits 
+                        SET name = ?, description = ?, frequency = ?
+                        WHERE id = ?''', 
+                     (name, description, frequency, habit_id))
+
+        # Handle categorical options
+        if habit['variable_type'] == 'categorical':
+            # Delete existing options
+            conn.execute('DELETE FROM habit_options WHERE habit_id = ?', (habit_id,))
+            # Add new options
+            options = request.form.getlist('options[]')
+            for option in options:
+                if option.strip():
+                    conn.execute('INSERT INTO habit_options (habit_id, option_value) VALUES (?, ?)',
+                                 (habit_id, option.strip()))
+
+        conn.commit()
+        flash('Habit updated successfully')
+        return redirect(url_for('view_board', board_id=habit['board_id']))
+
+    # Fetch categorical options if applicable
+    options = []
+    if habit['variable_type'] == 'categorical':
+        options = conn.execute('SELECT option_value FROM habit_options WHERE habit_id = ?', 
+                              (habit_id,)).fetchall()
+        options = [option['option_value'] for option in options]
+
+    conn.close()
+    return render_template('edit_habit.html', habit=habit, board=board, options=options)
+
+@app.route('/habit/<int:habit_id>/delete', methods=['POST'])
+@login_required
+def delete_habit(habit_id):
+    conn = get_db_connection()
+    habit = conn.execute('SELECT board_id FROM habits WHERE id = ? AND user_id = ?', 
+                         (habit_id, session['user_id'])).fetchone()
+    
+    if habit:
+        # Delete related entries and options first
+        conn.execute('DELETE FROM entries WHERE habit_id = ?', (habit_id,))
+        conn.execute('DELETE FROM habit_options WHERE habit_id = ?', (habit_id,))
+        # Then delete the habit
+        conn.execute('DELETE FROM habits WHERE id = ?', (habit_id,))
+        conn.commit()
+        flash('Habit deleted successfully')
+    else:
+        flash('Habit not found or unauthorized')
+    
+    conn.close()
+    return redirect(url_for('view_board', board_id=habit['board_id']))
 
 if __name__ == '__main__':
     app.run(debug=True)
@@ -209,7 +431,9 @@ connection.close()
 # File: schema.sql
 
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS habit_boards;
 DROP TABLE IF EXISTS habits;
+DROP TABLE IF EXISTS habit_options;
 DROP TABLE IF EXISTS entries;
 
 CREATE TABLE users (
@@ -218,17 +442,34 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL
 );
 
+CREATE TABLE habit_boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    board_type TEXT NOT NULL CHECK(board_type IN ('time-series', 'batch')),
+    created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
 CREATE TABLE habits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     board_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    frequency TEXT NOT NULL,
-    variable_type TEXT NOT NULL,
+    frequency TEXT, -- can be NULL for batch habits
+    variable_type TEXT NOT NULL CHECK(variable_type IN ('boolean', 'numeric', 'categorical')),
     created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id),
     FOREIGN KEY (board_id) REFERENCES habit_boards (id)
+);
+
+CREATE TABLE habit_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    habit_id INTEGER NOT NULL,
+    option_value TEXT NOT NULL,
+    FOREIGN KEY (habit_id) REFERENCES habits (id)
 );
 
 CREATE TABLE entries (
@@ -237,15 +478,6 @@ CREATE TABLE entries (
     date DATE NOT NULL,
     value TEXT NOT NULL,
     FOREIGN KEY (habit_id) REFERENCES habits (id)
-);
-
-CREATE TABLE habit_boards (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
 # File: todo.txt
@@ -291,6 +523,7 @@ Track your habits and create models to boost behaviors and squash vice.
     <div class="mb-3">
         <textarea class="form-control" name="description" placeholder="Description" rows="3"></textarea>
     </div>
+    {% if board['board_type'] == 'time-series' %}
     <div class="mb-3">
         <select class="form-select" name="frequency" required>
             <option value="" selected disabled>Select Frequency</option>
@@ -299,15 +532,42 @@ Track your habits and create models to boost behaviors and squash vice.
             <option value="monthly">Monthly</option>
         </select>
     </div>
+    {% endif %}
     <div class="mb-3">
-        <select class="form-select" name="variable_type" required>
+        <select class="form-select" name="variable_type" id="variable_type" required>
             <option value="" selected disabled>Select Variable Type</option>
             <option value="boolean">Yes/No</option>
             <option value="numeric">Numeric</option>
+            <option value="categorical">Categorical</option>
         </select>
+    </div>
+    <div id="categorical_options" style="display: none;">
+        <div class="mb-3">
+            <input type="text" class="form-control" name="options[]" placeholder="Option 1">
+        </div>
+        <button type="button" class="btn btn-secondary mb-3" id="add_option">Add Option</button>
     </div>
     <button type="submit" class="btn btn-primary">Add Habit</button>
 </form>
+
+<script>
+document.getElementById('variable_type').addEventListener('change', function() {
+    var categoricalOptions = document.getElementById('categorical_options');
+    if (this.value === 'categorical') {
+        categoricalOptions.style.display = 'block';
+    } else {
+        categoricalOptions.style.display = 'none';
+    }
+});
+
+document.getElementById('add_option').addEventListener('click', function() {
+    var optionsDiv = document.getElementById('categorical_options');
+    var newOption = document.createElement('div');
+    newOption.classList.add('mb-3');
+    newOption.innerHTML = '<input type="text" class="form-control" name="options[]" placeholder="New Option">';
+    optionsDiv.insertBefore(newOption, this);
+});
+</script>
 {% endblock %}
 
 # File: templates\base.html
@@ -324,19 +584,24 @@ Track your habits and create models to boost behaviors and squash vice.
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('index') }}">Habit Tracker</a>
-            <ul class="navbar-nav">
-                {% if 'user_id' in session %}
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('boards') }}">Habit Boards</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Logout</a></li>
-                {% else %}
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Login</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">Register</a></li>
-                {% endif %}
-            </ul>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    {% if 'user_id' in session %}
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('boards') }}">Habit Boards</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Logout</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('stats') }}">Stats</a></li>
+                    {% else %}
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Login</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">Register</a></li>
+                    {% endif %}
+                </ul>
+            </div>
         </div>
-    </nav>
-
+    </nav>  
     <div class="container mt-4">
         {% with messages = get_flashed_messages() %}
             {% if messages %}
@@ -366,18 +631,26 @@ Track your habits and create models to boost behaviors and squash vice.
     <div class="mb-3">
         <input type="text" class="form-control" name="description" placeholder="Description">
     </div>
+    <div class="mb-3">
+        <select class="form-select" name="board_type" required>
+            <option value="time-series">Time Series</option>
+            <option value="batch">Batch</option>
+        </select>
+    </div>
     <button type="submit" class="btn btn-primary">Create New Board</button>
 </form>
 <div class="list-group">
 {% for board in boards %}
     <a href="{{ url_for('view_board', board_id=board['id']) }}" class="list-group-item list-group-item-action">
-        <h5 class="mb-1">{{ board['name'] }}</h5>
+        <h5 class="mb-1">{{ board['name'] }} ({{ board['board_type'] }})</h5>
         <p class="mb-1">{{ board['description'] }}</p>
     </a>
+    <form method="post" action="{{ url_for('delete_board', board_id=board['id']) }}" style="display: inline;">
+        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this board? This action cannot be undone.');">Delete Board</button>
+    </form>
 {% endfor %}
 </div>
 {% endblock %}
-
 
 # File: templates\edit_entry.html
 
@@ -397,6 +670,58 @@ Track your habits and create models to boost behaviors and squash vice.
     {% endif %}
     <input type="submit" value="Update Entry">
 </form>
+{% endblock %}
+
+# File: templates\edit_habit.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Edit Habit: {{ habit['name'] }}</h2>
+<form method="post">
+    <div class="mb-3">
+        <input type="text" class="form-control" name="name" value="{{ habit['name'] }}" required>
+    </div>
+    <div class="mb-3">
+        <textarea class="form-control" name="description" rows="3">{{ habit['description'] }}</textarea>
+    </div>
+    {% if board['board_type'] == 'time-series' %}
+    <div class="mb-3">
+        <select class="form-select" name="frequency" required>
+            <option value="daily" {% if habit['frequency'] == 'daily' %}selected{% endif %}>Daily</option>
+            <option value="weekly" {% if habit['frequency'] == 'weekly' %}selected{% endif %}>Weekly</option>
+            <option value="monthly" {% if habit['frequency'] == 'monthly' %}selected{% endif %}>Monthly</option>
+        </select>
+    </div>
+    {% endif %}
+    {% if habit['variable_type'] == 'categorical' %}
+    <div id="categorical_options">
+        {% for option in options %}
+        <div class="mb-3">
+            <input type="text" class="form-control" name="options[]" value="{{ option }}">
+        </div>
+        {% endfor %}
+        <button type="button" class="btn btn-secondary mb-3" id="add_option">Add Option</button>
+    </div>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Update Habit</button>
+</form>
+<form method="post" action="{{ url_for('delete_habit', habit_id=habit['id']) }}" 
+      onsubmit="return confirm('Are you sure you want to delete this habit? This action cannot be undone.');">
+    <button type="submit" class="btn btn-danger mt-3">Delete Habit</button>
+</form>
+
+{% if habit['variable_type'] == 'categorical' %}
+<script>
+document.getElementById('add_option').addEventListener('click', function() {
+    var optionsDiv = document.getElementById('categorical_options');
+    var newOption = document.createElement('div');
+    newOption.classList.add('mb-3');
+    newOption.innerHTML = '<input type="text" class="form-control" name="options[]" placeholder="New Option">';
+    optionsDiv.insertBefore(newOption, this);
+});
+</script>
+{% endif %}
 {% endblock %}
 
 # File: templates\index.html
@@ -434,6 +759,60 @@ Track your habits and create models to boost behaviors and squash vice.
 <p>Don't have an account? <a href="{{ url_for('register') }}">Register</a></p>
 {% endblock %}
 
+
+# File: templates\log_all_habits.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Log Habits for {{ board['name'] }}</h2>
+<form method="post">
+    <div class="mb-3">
+        <label for="log_date" class="form-label">Date</label>
+        <input type="date" class="form-control" id="log_date" name="log_date" value="{{ today }}" required>
+    </div>
+
+    {% for habit in habits %}
+    <div class="mb-3">
+        <label for="habit_{{ habit['id'] }}" class="form-label">{{ habit['name'] }}</label>
+        {% if habit['variable_type'] == 'boolean' %}
+            <select class="form-select" id="habit_{{ habit['id'] }}" name="habit_{{ habit['id'] }}">
+                <option value="">Skip</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+            </select>
+        {% elif habit['variable_type'] == 'numeric' %}
+            <input type="number" class="form-control" id="habit_{{ habit['id'] }}" name="habit_{{ habit['id'] }}">
+        {% elif habit['variable_type'] == 'categorical' %}
+            <select class="form-select" id="habit_{{ habit['id'] }}" name="habit_{{ habit['id'] }}">
+                <option value="">Skip</option>
+                {% for option in habit['options'] %}
+                    <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+            </select>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <button type="submit" class="btn btn-primary">Log Habits</button>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var dateInput = document.getElementById('log_date');
+    var today = new Date().toISOString().split('T')[0];
+    dateInput.value = today;
+
+    dateInput.addEventListener('change', function() {
+        if (this.value !== today) {
+            if (!confirm('Are you sure you want to log habits for a different date?')) {
+                this.value = today;
+            }
+        }
+    });
+});
+</script>
+{% endblock %}
 
 # File: templates\log_habit.html
 
@@ -492,28 +871,84 @@ Track your habits and create models to boost behaviors and squash vice.
 <p class="mt-3">Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
 {% endblock %}
 
+# File: templates\stats.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Stats</h2>
+<form id="stat-form">
+    <div class="mb-3">
+        <label for="habit-select" class="form-label">Select Habit</label>
+        <select class="form-select" id="habit-select" name="habit_id">
+            {% for habit in habits %}
+                <option value="{{ habit['id'] }}">{{ habit['name'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="start-date" class="form-label">Start Date</label>
+        <input type="date" class="form-control" id="start-date" name="start_date">
+    </div>
+    <div class="mb-3">
+        <label for="end-date" class="form-label">End Date</label>
+        <input type="date" class="form-control" id="end-date" name="end_date">
+    </div>
+    <button type="submit" class="btn btn-primary">Generate Plot</button>
+</form>
+
+<div id="plot-container" class="mt-4"></div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.getElementById('stat-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    fetch('/generate_plot', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        Plotly.newPlot('plot-container', data.data, data.layout);
+    });
+});
+</script>
+{% endblock %}
+
 # File: templates\view_board.html
 
 {% extends "base.html" %}
 
 {% block content %}
-<h2 class="mb-4">{{ board['name'] }}</h2>
+<h2 class="mb-4">{{ board['name'] }} ({{ board['board_type'] }})</h2>
 <p>{{ board['description'] }}</p>
 <h3 class="mt-4 mb-3">Habits</h3>
 <div class="list-group mb-4">
 {% for habit in habits %}
-    <a href="{{ url_for('view_habit', habit_id=habit['id']) }}" class="list-group-item list-group-item-action">
+    <div class="list-group-item">
         <div class="d-flex w-100 justify-content-between">
             <h5 class="mb-1">{{ habit['name'] }}</h5>
-            <small>{{ habit['frequency'] }}</small>
+            <small>{{ habit['frequency'] if habit['frequency'] else 'Batch' }}</small>
         </div>
         <p class="mb-1">{{ habit['description'] }}</p>
         <small>Type: {{ habit['variable_type'] }}</small>
-    </a>
+        <div class="mt-2">
+            <a href="{{ url_for('view_habit', habit_id=habit['id']) }}" class="btn btn-sm btn-primary">View</a>
+            <a href="{{ url_for('edit_habit', habit_id=habit['id']) }}" class="btn btn-sm btn-secondary">Edit</a>
+            <form method="post" action="{{ url_for('delete_habit', habit_id=habit['id']) }}" style="display: inline;">
+                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this habit?');">Delete</button>
+            </form>
+        </div>
+    </div>
 {% endfor %}
 </div>
 <a href="{{ url_for('add_habit', board_id=board['id']) }}" class="btn btn-primary">Add New Habit</a>
+{% if board['board_type'] == 'batch' %}
+    <a href="{{ url_for('log_all_habits', board_id=board['id']) }}" class="btn btn-success ml-2">Log All Habits</a>
+{% endif %}
 {% endblock %}
+
 
 # File: templates\view_habit.html
 
@@ -522,8 +957,15 @@ Track your habits and create models to boost behaviors and squash vice.
 {% block content %}
 <h2>{{ habit['name'] }}</h2>
 <p>{{ habit['description'] }}</p>
-<p>Frequency: {{ habit['frequency'] }}</p>
+<p>Frequency: {{ habit['frequency'] if habit['frequency'] else 'Batch' }}</p>
 <p>Type: {{ habit['variable_type'] }}</p>
+
+<div class="mb-3">
+    <a href="{{ url_for('edit_habit', habit_id=habit['id']) }}" class="btn btn-secondary">Edit Habit</a>
+    <form method="post" action="{{ url_for('delete_habit', habit_id=habit['id']) }}" style="display: inline;">
+        <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this habit? This action cannot be undone.');">Delete Habit</button>
+    </form>
+</div>
 
 <h3>Log Entry</h3>
 <form method="post" action="{{ url_for('log_habit', habit_id=habit['id']) }}">
@@ -536,8 +978,14 @@ Track your habits and create models to boost behaviors and squash vice.
             <option value="1">Yes</option>
             <option value="0">No</option>
         </select>
-        {% else %}
+        {% elif habit['variable_type'] == 'numeric' %}
         <input type="number" class="form-control" name="value" required>
+        {% elif habit['variable_type'] == 'categorical' %}
+        <select class="form-select" name="value">
+            {% for option in habit_options %}
+                <option value="{{ option }}">{{ option }}</option>
+            {% endfor %}
+        </select>
         {% endif %}
     </div>
     <button type="submit" class="btn btn-primary">Log Entry</button>
@@ -550,10 +998,11 @@ Track your habits and create models to boost behaviors and squash vice.
         {{ entry['date'] }}: {{ entry['value'] }}
         <a href="{{ url_for('edit_entry', entry_id=entry['id']) }}" class="btn btn-sm btn-secondary">Edit</a>
         <form method="post" action="{{ url_for('delete_entry', entry_id=entry['id']) }}" style="display: inline;">
-            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this entry?');">Delete</button>
         </form>
     </li>
 {% endfor %}
 </ul>
 {% endblock %}
+
 

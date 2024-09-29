@@ -3,6 +3,7 @@ import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime, timedelta
+from flask import jsonify
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # Change this to a random secret key
@@ -19,6 +20,38 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+@app.route('/generate_plot', methods=['POST'])
+@login_required
+def generate_plot():
+    habit_id = request.form['habit_id']
+    start_date = request.form['start_date']
+    end_date = request.form['end_date']
+    
+    conn = get_db_connection()
+    entries = conn.execute('''
+        SELECT date, value FROM entries 
+        WHERE habit_id = ? AND date BETWEEN ? AND ?
+        ORDER BY date
+    ''', (habit_id, start_date, end_date)).fetchall()
+    conn.close()
+    
+    dates = [entry['date'] for entry in entries]
+    values = [float(entry['value']) for entry in entries]
+    
+    data = [{
+        'x': dates,
+        'y': values,
+        'type': 'scatter'
+    }]
+    
+    layout = {
+        'title': 'Habit Progress',
+        'xaxis': {'title': 'Date'},
+        'yaxis': {'title': 'Value'}
+    }
+    
+    return jsonify({'data': data, 'layout': layout})
 
 @app.route('/')
 @login_required
@@ -228,6 +261,43 @@ def log_habit(habit_id):
     conn.close()
     return render_template('log_habit.html', habit=habit, entries=entries)
 
+@app.route('/board/<int:board_id>/delete', methods=['POST'])
+@login_required
+def delete_board(board_id):
+    conn = get_db_connection()
+    
+    # First, delete all entries associated with habits in this board
+    conn.execute('''
+        DELETE FROM entries 
+        WHERE habit_id IN (SELECT id FROM habits WHERE board_id = ?)
+    ''', (board_id,))
+    
+    # Delete all habit options associated with habits in this board
+    conn.execute('''
+        DELETE FROM habit_options 
+        WHERE habit_id IN (SELECT id FROM habits WHERE board_id = ?)
+    ''', (board_id,))
+    
+    # Delete all habits associated with this board
+    conn.execute('DELETE FROM habits WHERE board_id = ?', (board_id,))
+    
+    # Finally, delete the board itself
+    conn.execute('DELETE FROM habit_boards WHERE id = ? AND user_id = ?', (board_id, session['user_id']))
+    
+    conn.commit()
+    conn.close()
+    
+    flash('Habit board deleted successfully')
+    return redirect(url_for('boards'))
+
+@app.route('/stats')
+@login_required
+def stats():
+    conn = get_db_connection()
+    habits = conn.execute('SELECT id, name FROM habits WHERE user_id = ?', (session['user_id'],)).fetchall()
+    conn.close()
+    return render_template('stats.html', habits=habits)
+
 @app.route('/habit/<int:habit_id>')
 @login_required
 def view_habit(habit_id):
@@ -235,8 +305,14 @@ def view_habit(habit_id):
     habit = conn.execute('SELECT * FROM habits WHERE id = ? AND user_id = ?', 
                          (habit_id, session['user_id'])).fetchone()
     entries = conn.execute('SELECT * FROM entries WHERE habit_id = ? ORDER BY date DESC', (habit_id,)).fetchall()
+    
+    habit_options = []
+    if habit['variable_type'] == 'categorical':
+        options = conn.execute('SELECT option_value FROM habit_options WHERE habit_id = ?', (habit_id,)).fetchall()
+        habit_options = [option['option_value'] for option in options]
+    
     conn.close()
-    return render_template('view_habit.html', habit=habit, entries=entries)
+    return render_template('view_habit.html', habit=habit, entries=entries, habit_options=habit_options)
 
 @app.route('/entry/<int:entry_id>/edit', methods=['GET', 'POST'])
 @login_required

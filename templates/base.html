@@ -10,19 +10,24 @@
     <nav class="navbar navbar-expand-lg navbar-light bg-light">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('index') }}">Habit Tracker</a>
-            <ul class="navbar-nav">
-                {% if 'user_id' in session %}
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('boards') }}">Habit Boards</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Logout</a></li>
-                {% else %}
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Login</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">Register</a></li>
-                {% endif %}
-            </ul>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    {% if 'user_id' in session %}
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('boards') }}">Habit Boards</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Logout</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('stats') }}">Stats</a></li>
+                    {% else %}
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Login</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">Register</a></li>
+                    {% endif %}
+                </ul>
+            </div>
         </div>
-    </nav>
-
+    </nav>  
     <div class="container mt-4">
         {% with messages = get_flashed_messages() %}
             {% if messages %}
