@@ -23,38 +23,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/generate_plot', methods=['POST'])
-@login_required
-def generate_plot():
-    habit_id = request.form['habit_id']
-    start_date = request.form['start_date']
-    end_date = request.form['end_date']
-    
-    conn = get_db_connection()
-    entries = conn.execute('''
-        SELECT date, value FROM entries 
-        WHERE habit_id = ? AND date BETWEEN ? AND ?
-        ORDER BY date
-    ''', (habit_id, start_date, end_date)).fetchall()
-    conn.close()
-    
-    dates = [entry['date'] for entry in entries]
-    values = [float(entry['value']) for entry in entries]
-    
-    data = [{
-        'x': dates,
-        'y': values,
-        'type': 'scatter'
-    }]
-    
-    layout = {
-        'title': 'Habit Progress',
-        'xaxis': {'title': 'Date'},
-        'yaxis': {'title': 'Value'}
-    }
-    
-    return jsonify({'data': data, 'layout': layout})
-
 @app.route('/')
 @login_required
 def index():
@@ -296,9 +264,122 @@ def delete_board(board_id):
 @login_required
 def stats():
     conn = get_db_connection()
-    habits = conn.execute('SELECT id, name FROM habits WHERE user_id = ?', (session['user_id'],)).fetchall()
+    habits = conn.execute('SELECT id, name FROM habits WHERE user_id = ? AND variable_type = ?', 
+                          (session['user_id'], 'numeric')).fetchall()
     conn.close()
     return render_template('stats.html', habits=habits)
+
+@app.route('/categorical_stats')
+@login_required
+def categorical_stats():
+    conn = get_db_connection()
+    habits = conn.execute('SELECT id, name FROM habits WHERE user_id = ? AND variable_type = ?', 
+                          (session['user_id'], 'categorical')).fetchall()
+    conn.close()
+    return render_template('categorical_stats.html', habits=habits)
+
+@app.route('/boolean_stats')
+@login_required
+def boolean_stats():
+    conn = get_db_connection()
+    habits = conn.execute('SELECT id, name FROM habits WHERE user_id = ? AND variable_type = ?', 
+                          (session['user_id'], 'boolean')).fetchall()
+    conn.close()
+    return render_template('boolean_stats.html', habits=habits)
+
+@app.route('/generate_categorical_plot', methods=['POST'])
+@login_required
+def generate_categorical_plot():
+    habit_id = request.form['habit_id']
+    start_date = request.form['start_date']
+    end_date = request.form['end_date']
+    
+    conn = get_db_connection()
+    entries = conn.execute('''SELECT date, value FROM entries 
+                             WHERE habit_id = ? AND date BETWEEN ? AND ?
+                             ORDER BY date''', (habit_id, start_date, end_date)).fetchall()
+    conn.close()
+    
+    dates = [entry['date'] for entry in entries]
+    values = [entry['value'] for entry in entries]
+    
+    data = [{
+        'x': dates,
+        'y': values,
+        'type': 'bar'
+    }]
+    
+    layout = {
+        'title': 'Habit Progress',
+        'xaxis': {'title': 'Date'},
+        'yaxis': {'title': 'Value'}
+    }
+    
+    return jsonify({'data': data, 'layout': layout})
+
+@app.route('/generate_boolean_plot', methods=['POST'])
+@login_required
+def generate_boolean_plot():
+    habit_id = request.form['habit_id']
+    start_date = request.form['start_date']
+    end_date = request.form['end_date']
+    
+    conn = get_db_connection()
+    entries = conn.execute('''SELECT date, value FROM entries 
+                             WHERE habit_id = ? AND date BETWEEN ? AND ?
+                             ORDER BY date''', (habit_id, start_date, end_date)).fetchall()
+    conn.close()
+    
+    dates = [entry['date'] for entry in entries]
+    values = [int(entry['value']) for entry in entries]
+    
+    data = [{
+        'x': dates,
+        'y': values,
+        'type': 'scatter',
+        'mode': 'lines+markers'
+    }]
+    
+    layout = {
+        'title': 'Habit Progress',
+        'xaxis': {'title': 'Date'},
+        'yaxis': {'title': 'Value', 'tick0': 0, 'dtick': 1, 'range': [-0.1, 1.1]}
+    }
+    
+    return jsonify({'data': data, 'layout': layout})
+
+@app.route('/generate_plot', methods=['POST'])
+@login_required
+def generate_plot():
+    habit_id = request.form['habit_id']
+    start_date = request.form['start_date']
+    end_date = request.form['end_date']
+    
+    conn = get_db_connection()
+    entries = conn.execute('''
+        SELECT date, value FROM entries 
+        WHERE habit_id = ? AND date BETWEEN ? AND ?
+        ORDER BY date
+    ''', (habit_id, start_date, end_date)).fetchall()
+    conn.close()
+    
+    dates = [entry['date'] for entry in entries]
+    values = [float(entry['value']) for entry in entries]
+    
+    data = [{
+        'x': dates,
+        'y': values,
+        'type': 'scatter'
+    }]
+    
+    layout = {
+        'title': 'Habit Progress',
+        'xaxis': {'title': 'Date'},
+        'yaxis': {'title': 'Value'}
+    }
+    
+    return jsonify({'data': data, 'layout': layout})
+
 
 @app.route('/habit/<int:habit_id>')
 @login_required
@@ -652,6 +733,96 @@ document.getElementById('add_option').addEventListener('click', function() {
 </div>
 {% endblock %}
 
+# File: templates\boolean_stats.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Boolean Stats</h2>
+<form id="stat-form">
+    <div class="mb-3">
+        <label for="habit-select" class="form-label">Select Habit</label>
+        <select class="form-select" id="habit-select" name="habit_id">
+            {% for habit in habits %}
+                <option value="{{ habit['id'] }}">{{ habit['name'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="start-date" class="form-label">Start Date</label>
+        <input type="date" class="form-control" id="start-date" name="start_date">
+    </div>
+    <div class="mb-3">
+        <label for="end-date" class="form-label">End Date</label>
+        <input type="date" class="form-control" id="end-date" name="end_date">
+    </div>
+    <button type="submit" class="btn btn-primary">Generate Plot</button>
+</form>
+
+<div id="plot-container" class="mt-4"></div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.getElementById('stat-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    fetch('/generate_boolean_plot', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        Plotly.newPlot('plot-container', data.data, data.layout);
+    });
+});
+</script>
+{% endblock %}
+
+# File: templates\categorical_stats.html
+
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Categorical Stats</h2>
+<form id="stat-form">
+    <div class="mb-3">
+        <label for="habit-select" class="form-label">Select Habit</label>
+        <select class="form-select" id="habit-select" name="habit_id">
+            {% for habit in habits %}
+                <option value="{{ habit['id'] }}">{{ habit['name'] }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="start-date" class="form-label">Start Date</label>
+        <input type="date" class="form-control" id="start-date" name="start_date">
+    </div>
+    <div class="mb-3">
+        <label for="end-date" class="form-label">End Date</label>
+        <input type="date" class="form-control" id="end-date" name="end_date">
+    </div>
+    <button type="submit" class="btn btn-primary">Generate Plot</button>
+</form>
+
+<div id="plot-container" class="mt-4"></div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.getElementById('stat-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    fetch('/generate_categorical_plot', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        Plotly.newPlot('plot-container', data.data, data.layout);
+    });
+});
+</script>
+{% endblock %}
+
 # File: templates\edit_entry.html
 
 {% extends "base.html" %}
@@ -882,7 +1053,9 @@ document.addEventListener('DOMContentLoaded', function() {
         <label for="habit-select" class="form-label">Select Habit</label>
         <select class="form-select" id="habit-select" name="habit_id">
             {% for habit in habits %}
-                <option value="{{ habit['id'] }}">{{ habit['name'] }}</option>
+                {% if habit['variable_type'] == 'numeric' %}
+                    <option value="{{ habit['id'] }}">{{ habit['name'] }}</option>
+                {% endif %}
             {% endfor %}
         </select>
     </div>

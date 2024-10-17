@@ -21,38 +21,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/generate_plot', methods=['POST'])
-@login_required
-def generate_plot():
-    habit_id = request.form['habit_id']
-    start_date = request.form['start_date']
-    end_date = request.form['end_date']
-    
-    conn = get_db_connection()
-    entries = conn.execute('''
-        SELECT date, value FROM entries 
-        WHERE habit_id = ? AND date BETWEEN ? AND ?
-        ORDER BY date
-    ''', (habit_id, start_date, end_date)).fetchall()
-    conn.close()
-    
-    dates = [entry['date'] for entry in entries]
-    values = [float(entry['value']) for entry in entries]
-    
-    data = [{
-        'x': dates,
-        'y': values,
-        'type': 'scatter'
-    }]
-    
-    layout = {
-        'title': 'Habit Progress',
-        'xaxis': {'title': 'Date'},
-        'yaxis': {'title': 'Value'}
-    }
-    
-    return jsonify({'data': data, 'layout': layout})
-
 @app.route('/')
 @login_required
 def index():
@@ -294,9 +262,83 @@ def delete_board(board_id):
 @login_required
 def stats():
     conn = get_db_connection()
-    habits = conn.execute('SELECT id, name FROM habits WHERE user_id = ?', (session['user_id'],)).fetchall()
+    habits = conn.execute('SELECT id, name, variable_type FROM habits WHERE user_id = ?', (session['user_id'],)).fetchall()
     conn.close()
     return render_template('stats.html', habits=habits)
+
+@app.route('/generate_plot', methods=['POST'])
+@login_required
+def generate_plot():
+    habit_id = request.form['habit_id']
+    start_date = request.form['start_date']
+    end_date = request.form['end_date']
+    
+    conn = get_db_connection()
+    habit = conn.execute('SELECT variable_type FROM habits WHERE id = ?', (habit_id,)).fetchone()
+    if habit['variable_type'] == 'numeric':
+        entries = conn.execute('''
+            SELECT date, value FROM entries 
+            WHERE habit_id = ? AND date BETWEEN ? AND ?
+            ORDER BY date
+        ''', (habit_id, start_date, end_date)).fetchall()
+        dates = [entry['date'] for entry in entries]
+        values = [float(entry['value']) for entry in entries]
+        
+        data = [{
+            'x': dates,
+            'y': values,
+            'type': 'scatter'
+        }]
+        
+        layout = {
+            'title': 'Habit Progress',
+            'xaxis': {'title': 'Date'},
+            'yaxis': {'title': 'Value'}
+        }
+    elif habit['variable_type'] == 'boolean':
+        entries = conn.execute('''
+            SELECT date, value FROM entries 
+            WHERE habit_id = ? AND date BETWEEN ? AND ?
+            ORDER BY date
+        ''', (habit_id, start_date, end_date)).fetchall()
+        dates = [entry['date'] for entry in entries]
+        values = [int(entry['value']) for entry in entries]
+        
+        data = [{
+            'x': dates,
+            'y': values,
+            'type': 'bar'
+        }]
+        
+        layout = {
+            'title': 'Habit Progress',
+            'xaxis': {'title': 'Date'},
+            'yaxis': {'title': 'Yes/No'}
+        }
+    elif habit['variable_type'] == 'categorical':
+        entries = conn.execute('''
+            SELECT date, value FROM entries 
+            WHERE habit_id = ? AND date BETWEEN ? AND ?
+            ORDER BY date
+        ''', (habit_id, start_date, end_date)).fetchall()
+        dates = [entry['date'] for entry in entries]
+        values = [entry['value'] for entry in entries]
+        
+        data = [{
+            'x': dates,
+            'y': values,
+            'type': 'bar'
+        }]
+        
+        layout = {
+            'title': 'Habit Progress',
+            'xaxis': {'title': 'Date'},
+            'yaxis': {'title': 'Category'}
+        }
+    
+    conn.close()
+    
+    return jsonify({'data': data, 'layout': layout})
 
 @app.route('/habit/<int:habit_id>')
 @login_required

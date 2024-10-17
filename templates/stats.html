@@ -7,7 +7,7 @@
         <label for="habit-select" class="form-label">Select Habit</label>
         <select class="form-select" id="habit-select" name="habit_id">
             {% for habit in habits %}
-                <option value="{{ habit['id'] }}">{{ habit['name'] }}</option>
+                <option value="{{ habit['id'] }}">{{ habit['name'] }} ({{ habit['variable_type'] }})</option>
             {% endfor %}
         </select>
     </div>
