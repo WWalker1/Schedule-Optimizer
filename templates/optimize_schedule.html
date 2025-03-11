@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Optimize Daily Schedule</h2>
+
+<div class="card">
+    <div class="card-header">
+        <h5>Set Your Constraints and Goals</h5>
+    </div>
+    <div class="card-body">
+        <p>Define your target habit and constraints for your daily schedule optimization.</p>
+        
+        <form action="{{ url_for('optimize_schedule') }}" method="post">
+            <div class="mb-4">
+                <label for="target_habit" class="form-label">Target Habit to Optimize</label>
+                <select class="form-select" id="target_habit" name="target_habit" required>
+                    <option value="">Select a habit to optimize</option>
+                    {% for habit in habits %}
+                        {% if habit['variable_type'] in ['numeric', 'boolean'] %}
+                            <option value="{{ habit['id'] }}">{{ habit['name'] }} ({{ habit['variable_type'] }})</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+                <div class="form-text">This is the habit you want to maximize in your schedule</div>
+            </div>
+            
+            <h5 class="mb-3">Habit Constraints</h5>
+            <p class="text-muted mb-4">Set minimum and maximum values for your habits to create a realistic schedule</p>
+            
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Habit</th>
+                            <th>Minimum Value</th>
+                            <th>Maximum Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for habit in habits %}
+                            <tr>
+                                <td>{{ habit['name'] }}</td>
+                                <td>
+                                    {% if habit['variable_type'] == 'numeric' %}
+                                        <input type="number" class="form-control" name="min_{{ habit['id'] }}" placeholder="Min value">
+                                    {% elif habit['variable_type'] == 'boolean' %}
+                                        <select class="form-select" name="min_{{ habit['id'] }}">
+                                            <option value="">No minimum</option>
+                                            <option value="1">Yes</option>
+                                            <option value="0">No</option>
+                                        </select>
+                                    {% else %}
+                                        <select class="form-select" name="min_{{ habit['id'] }}">
+                                            <option value="">No minimum</option>
+                                            <!-- Options would be populated from the database in a real implementation -->
+                                            <option value="option1">Option 1</option>
+                                            <option value="option2">Option 2</option>
+                                        </select>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if habit['variable_type'] == 'numeric' %}
+                                        <input type="number" class="form-control" name="max_{{ habit['id'] }}" placeholder="Max value">
+                                    {% elif habit['variable_type'] == 'boolean' %}
+                                        <select class="form-select" name="max_{{ habit['id'] }}">
+                                            <option value="">No maximum</option>
+                                            <option value="1">Yes</option>
+                                            <option value="0">No</option>
+                                        </select>
+                                    {% else %}
+                                        <select class="form-select" name="max_{{ habit['id'] }}">
+                                            <option value="">No maximum</option>
+                                            <!-- Options would be populated from the database in a real implementation -->
+                                            <option value="option1">Option 1</option>
+                                            <option value="option2">Option 2</option>
+                                        </select>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <button type="submit" class="btn btn-primary mt-3">Generate Optimized Schedule</button>
+        </form>
+    </div>
+</div>
+
+{% endblock %} 

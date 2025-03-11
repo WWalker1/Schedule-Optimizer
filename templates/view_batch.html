@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto p-4">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-indigo-700">{{ batch['title'] }}</h1>
+        <div>
+            <form method="post" action="{{ url_for('log_batch', id=batch['id']) }}" class="inline">
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Log All Habits
+                </button>
+            </form>
+            <a href="{{ url_for('index') }}" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded ml-2">
+                Back
+            </a>
+        </div>
+    </div>
+    
+    {% if batch['description'] %}
+    <p class="text-gray-600 mb-6">{{ batch['description'] }}</p>
+    {% endif %}
+    
+    <div class="bg-white shadow-md rounded-lg overflow-hidden">
+        <div class="px-6 py-4 bg-indigo-100 border-b border-gray-200">
+            <h2 class="text-lg font-semibold text-indigo-800">Habits in this Batch</h2>
+        </div>
+        
+        <ul class="divide-y divide-gray-200">
+            {% for habit in habits %}
+            <li class="px-6 py-4 flex items-center">
+                <div class="flex-1">
+                    <h3 class="text-lg font-medium text-gray-900">{{ habit['title'] }}</h3>
+                    {% if habit['description'] %}
+                    <p class="text-sm text-gray-500">{{ habit['description'] }}</p>
+                    {% endif %}
+                </div>
+                <div>
+                    {% if habit['id'] in completed_habits %}
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                        <svg class="mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8">
+                            <circle cx="4" cy="4" r="3" />
+                        </svg>
+                        Completed
+                    </span>
+                    {% else %}
+                    <form method="post" action="{{ url_for('log_habit', habit_id=habit['id']) }}" class="inline">
+                        <input type="hidden" name="date" value="{{ today }}">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-1 px-3 rounded">
+                            Log
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-6 text-indigo-700">Create Batch Habit</h1>
+    
+    <form method="post" class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+        <div class="mb-4">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="title">
+                Title
+            </label>
+            <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+                   name="title" id="title" required>
+        </div>
+        
+        <div class="mb-4">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="description">
+                Description
+            </label>
+            <textarea class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+                      name="description" id="description" rows="3"></textarea>
+        </div>
+        
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-2">
+                Select Habits to Include
+            </label>
+            <div class="bg-gray-50 p-3 rounded border">
+                {% for habit in habits %}
+                <div class="mb-2">
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" name="habits" value="{{ habit['id'] }}" class="form-checkbox h-5 w-5 text-indigo-600">
+                        <span class="ml-2">{{ habit['title'] }}</span>
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div class="flex items-center justify-between">
+            <button class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline" 
+                    type="submit">
+                Create Batch
+            </button>
+            <a href="{{ url_for('index') }}" class="inline-block align-baseline font-bold text-sm text-indigo-600 hover:text-indigo-800">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %} 

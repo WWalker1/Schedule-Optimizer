@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">ML Habit Optimization</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Predict Habit Outcomes</h5>
+            </div>
+            <div class="card-body">
+                <p>Use machine learning to predict how your habits affect each other and optimize your routine.</p>
+                <form action="{{ url_for('models') }}" method="post">
+                    <div class="mb-3">
+                        <label for="target_habit" class="form-label">Target Habit (What you want to optimize)</label>
+                        <select class="form-select" id="target_habit" name="target_habit" required>
+                            <option value="">Select a habit to optimize</option>
+                            {% for habit in target_habits %}
+                                <option value="{{ habit['id'] }}">{{ habit['name'] }} ({{ habit['variable_type'] }})</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Select the habit you want to optimize</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Feature Habits (What affects your target)</label>
+                        <div class="form-text mb-2">Select the habits that might influence your target habit</div>
+                        {% for habit in feature_habits %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="feature_habits" value="{{ habit['id'] }}" id="habit_{{ habit['id'] }}">
+                                <label class="form-check-label" for="habit_{{ habit['id'] }}">
+                                    {{ habit['name'] }} ({{ habit['variable_type'] }})
+                                </label>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="optimization_goal" class="form-label">Optimization Goal</label>
+                        <select class="form-select" id="optimization_goal" name="optimization_goal" required>
+                            <option value="maximize">Maximize</option>
+                            <option value="minimize">Minimize</option>
+                        </select>
+                        <div class="form-text">Do you want to maximize or minimize your target habit?</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="model_type" class="form-label">Model Type</label>
+                        <select class="form-select" id="model_type" name="model_type" required>
+                            <option value="random_forest">Random Forest</option>
+                            <option value="svm">Support Vector Machine</option>
+                            <option value="linear_regression">Linear Regression</option>
+                        </select>
+                        <div class="form-text">Select the machine learning algorithm to use</div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Generate Predictions</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Optimize Daily Schedule</h5>
+            </div>
+            <div class="card-body">
+                <p>Generate an optimized daily schedule based on your habit data and goals.</p>
+                <a href="{{ url_for('optimize_schedule') }}" class="btn btn-success">Create Optimized Schedule</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if not target_habits %}
+<div class="alert alert-info mt-4">
+    <h4>Not enough data for ML predictions</h4>
+    <p>You need at least 10 data points for each habit to use the ML optimization features. Continue tracking your habits regularly to unlock these features!</p>
+</div>
+{% endif %}
+
+{% endblock %} 

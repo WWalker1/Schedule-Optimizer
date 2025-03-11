@@ -4,8 +4,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime, timedelta
 from flask import jsonify
+from flask_cors import CORS
+import ml_utils  # Import our ML utilities
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 app.secret_key = 'your_secret_key'  # Change this to a random secret key
 
 def get_db_connection():
@@ -266,6 +269,148 @@ def stats():
     conn.close()
     return render_template('stats.html', habits=habits)
 
+@app.route('/models', methods=['GET', 'POST'])
+@login_required
+def models():
+    conn = get_db_connection()
+    # Get all user's habits that have sufficient data for modeling
+    habits = conn.execute('''
+        SELECT h.id, h.name, h.variable_type, COUNT(e.id) as entry_count 
+        FROM habits h
+        LEFT JOIN entries e ON h.id = e.habit_id
+        WHERE h.user_id = ?
+        GROUP BY h.id
+        HAVING entry_count >= 10
+    ''', (session['user_id'],)).fetchall()
+    
+    # Get all numeric/boolean habits that could be target variables
+    target_habits = [h for h in habits if h['variable_type'] in ('numeric', 'boolean')]
+    
+    # Get all habits that could be features
+    feature_habits = [h for h in habits if h['entry_count'] >= 10]
+    
+    if request.method == 'POST':
+        target_habit_id = request.form['target_habit']
+        feature_habit_ids = request.form.getlist('feature_habits')
+        optimization_goal = request.form['optimization_goal']  # 'maximize' or 'minimize'
+        model_type = request.form['model_type']  # 'random_forest', 'svm', etc.
+        
+        # Fetch the target habit details
+        target_habit = conn.execute('SELECT * FROM habits WHERE id = ?', (target_habit_id,)).fetchone()
+        
+        # Fetch data for the target and feature habits
+        data = {}
+        
+        # Get target data
+        target_data = conn.execute('''
+            SELECT date, value FROM entries 
+            WHERE habit_id = ? 
+            ORDER BY date
+        ''', (target_habit_id,)).fetchall()
+        
+        data['target'] = {
+            'name': target_habit['name'],
+            'dates': [entry['date'] for entry in target_data],
+            'values': [float(entry['value']) if target_habit['variable_type'] == 'numeric' 
+                      else 1 if entry['value'].lower() in ('true', '1', 'yes') else 0 
+                      for entry in target_data]
+        }
+        
+        # Get feature data
+        data['features'] = []
+        for feature_id in feature_habit_ids:
+            feature = conn.execute('SELECT * FROM habits WHERE id = ?', (feature_id,)).fetchone()
+            feature_data = conn.execute('''
+                SELECT date, value FROM entries 
+                WHERE habit_id = ? 
+                ORDER BY date
+            ''', (feature_id,)).fetchall()
+            
+            feature_values = []
+            if feature['variable_type'] == 'numeric':
+                feature_values = [float(entry['value']) for entry in feature_data]
+            elif feature['variable_type'] == 'boolean':
+                feature_values = [1 if entry['value'].lower() in ('true', '1', 'yes') else 0 for entry in feature_data]
+            elif feature['variable_type'] == 'categorical':
+                # Get unique categories
+                categories = conn.execute('''
+                    SELECT DISTINCT value FROM entries WHERE habit_id = ?
+                ''', (feature_id,)).fetchall()
+                categories = [c['value'] for c in categories]
+                
+                # One-hot encode categorical values
+                for entry in feature_data:
+                    encoded = [1 if entry['value'] == cat else 0 for cat in categories]
+                    feature_values.append(encoded)
+            
+            data['features'].append({
+                'id': feature['id'],
+                'name': feature['name'],
+                'type': feature['variable_type'],
+                'dates': [entry['date'] for entry in feature_data],
+                'values': feature_values
+            })
+        
+        # Process data and train model
+        try:
+            # Preprocess data
+            X, y, feature_names = ml_utils.preprocess_data(data)
+            
+            # Train model
+            is_classification = target_habit['variable_type'] == 'boolean'
+            model, scaler, X_test, y_test, accuracy = ml_utils.train_model(X, y, model_type, is_classification)
+            
+            # Generate recommendations
+            recommendations = ml_utils.generate_recommendations(data, model, scaler, feature_names, optimization_goal)
+            
+            conn.close()
+            return render_template('model_results.html', 
+                                  target_habit=target_habit,
+                                  recommendations=recommendations,
+                                  optimization_goal=optimization_goal)
+        except Exception as e:
+            flash(f"Error training model: {str(e)}")
+            conn.close()
+            return redirect(url_for('models'))
+    
+    conn.close()
+    return render_template('models.html', target_habits=target_habits, feature_habits=feature_habits)
+
+@app.route('/optimize_schedule', methods=['GET', 'POST'])
+@login_required
+def optimize_schedule():
+    conn = get_db_connection()
+    habits = conn.execute('SELECT * FROM habits WHERE user_id = ?', (session['user_id'],)).fetchall()
+    
+    if request.method == 'POST':
+        target_habit_id = request.form['target_habit']
+        constraints = {}
+        
+        # Collect constraints for each habit
+        for habit in habits:
+            habit_id = habit['id']
+            min_key = f'min_{habit_id}'
+            max_key = f'max_{habit_id}'
+            
+            if min_key in request.form and request.form[min_key]:
+                if habit_id not in constraints:
+                    constraints[habit_id] = {}
+                constraints[habit_id]['min'] = float(request.form[min_key])
+            
+            if max_key in request.form and request.form[max_key]:
+                if habit_id not in constraints:
+                    constraints[habit_id] = {}
+                constraints[habit_id]['max'] = float(request.form[max_key])
+        
+        # Generate optimized schedule
+        schedule = ml_utils.generate_optimized_schedule(target_habit_id, constraints, habits)
+        
+        conn.close()
+        return render_template('optimized_schedule.html', schedule=schedule)
+    
+    conn.close()
+    return render_template('optimize_schedule.html', habits=habits)
+
 @app.route('/generate_plot', methods=['POST'])
 @login_required
 def generate_plot():
@@ -453,4 +598,4 @@ def delete_habit(habit_id):
     return redirect(url_for('view_board', board_id=habit['board_id']))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0')

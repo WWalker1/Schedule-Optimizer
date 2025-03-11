@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">Your Optimized Daily Schedule</h2>
+
+<div class="alert alert-success mb-4">
+    <h4>Predicted {{ schedule.target_habit }} Score: {{ schedule.predicted_value }}</h4>
+    <p>Follow this schedule to optimize your {{ schedule.target_habit }} based on your historical data and constraints.</p>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5>Daily Schedule</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Habit</th>
+                        <th>Recommended Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in schedule.daily_plan %}
+                    <tr>
+                        <td>{{ item.time }}</td>
+                        <td>{{ item.habit }}</td>
+                        <td>{{ item.value }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Schedule Visualization</h5>
+            </div>
+            <div class="card-body">
+                <div id="schedule-plot"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5>Tips for Success</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group">
+                    <li class="list-group-item">Start with the most important habits first thing in the morning</li>
+                    <li class="list-group-item">Group similar activities together to build momentum</li>
+                    <li class="list-group-item">Take short breaks between activities to maintain energy</li>
+                    <li class="list-group-item">Adjust the schedule if needed based on your energy levels</li>
+                    <li class="list-group-item">Track your progress daily to see improvements</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-4">
+    <a href="{{ url_for('optimize_schedule') }}" class="btn btn-secondary">Adjust Constraints</a>
+    <a href="{{ url_for('models') }}" class="btn btn-primary">Back to ML Optimization</a>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+    // Extract data for the plot
+    const times = [{% for item in schedule.daily_plan %}"{{ item.time }}", {% endfor %}];
+    const habits = [{% for item in schedule.daily_plan %}"{{ item.habit }}", {% endfor %}];
+    
+    // Create a simple timeline visualization
+    const data = [{
+        x: times,
+        y: habits,
+        type: 'scatter',
+        mode: 'markers',
+        marker: {
+            size: 12,
+            color: 'rgba(50, 171, 96, 0.7)'
+        }
+    }];
+    
+    const layout = {
+        title: 'Daily Schedule Timeline',
+        xaxis: {
+            title: 'Time of Day'
+        },
+        yaxis: {
+            title: 'Habit',
+            categoryorder: 'array',
+            categoryarray: habits.filter((v, i, a) => a.indexOf(v) === i)
+        }
+    };
+    
+    Plotly.newPlot('schedule-plot', data, layout);
+</script>
+{% endblock %} 

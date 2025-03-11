@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">ML Prediction Results</h2>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h5>Prediction for {{ target_habit['name'] }}</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Optimization Goal: {{ optimization_goal|capitalize }}</h6>
+                <div class="alert alert-success">
+                    <h4>Predicted Value: {{ recommendations.predicted_value }}</h4>
+                    <p>Confidence: {{ (recommendations.confidence * 100)|round(1) }}%</p>
+                </div>
+                
+                <h6 class="mt-4">Explanation</h6>
+                <p>{{ recommendations.explanation }}</p>
+                
+                <a href="{{ url_for('models') }}" class="btn btn-secondary mt-3">Back to Models</a>
+            </div>
+            
+            <div class="col-md-6">
+                <div id="feature-importance-plot"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5>Recommended Habit Settings</h5>
+    </div>
+    <div class="card-body">
+        <p>Based on our analysis, here are the optimal settings for your habits:</p>
+        
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Habit</th>
+                        <th>Recommendation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for habit in recommendations.suggested_habits %}
+                    <tr>
+                        <td>{{ habit.name }}</td>
+                        <td>{{ habit.recommendation }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+    // Sample feature importance data - this would be replaced with actual data from the backend
+    const featureData = [
+        {% for habit in recommendations.suggested_habits %}
+        {
+            name: "{{ habit.name }}",
+            importance: {{ loop.index / loop.length }}
+        },
+        {% endfor %}
+    ];
+    
+    const data = [{
+        x: featureData.map(f => f.importance),
+        y: featureData.map(f => f.name),
+        type: 'bar',
+        orientation: 'h',
+        marker: {
+            color: 'rgba(50, 171, 96, 0.7)'
+        }
+    }];
+    
+    const layout = {
+        title: 'Feature Importance',
+        xaxis: {
+            title: 'Importance'
+        },
+        yaxis: {
+            title: 'Habit'
+        },
+        margin: {
+            l: 150
+        }
+    };
+    
+    Plotly.newPlot('feature-importance-plot', data, layout);
+</script>
+{% endblock %} 
